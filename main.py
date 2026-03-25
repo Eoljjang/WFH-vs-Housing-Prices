@@ -1,4 +1,6 @@
 import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
 def wfh_by_city():
     excel_path = "./data/WFH_TimeSeries.xlsx"
@@ -172,8 +174,65 @@ def generate_wfh_impact_report(growth_df):
 
     return report.sort_values(by='Donut_Gap', ascending=False)
 
-def visualizations():
-    pass
+def visualization_wfh_vs_donut(df):
+    # Create a fresh figure
+    plt.figure(figsize=(10, 6))
+    
+    # Scatter points
+    plt.scatter(df['Avg_WFH_Score'], df['Donut_Gap'], color='#2c3e50', s=100, label='City Data Points', zorder=3)
+
+    # Calculate & plot trendline
+    x = df['Avg_WFH_Score'].values
+    y = df['Donut_Gap'].values
+    m, b = np.polyfit(x, y, 1)
+    
+    # Generate points for the trendline
+    plt.plot(x, m*x + b, color='#e74c3c', linestyle='--', linewidth=2, label=f'Trendline (y={m:.2f}x + {b:.2f})')
+
+    # Annotate each city
+    for i, row in df.iterrows():
+        plt.annotate(row['City'], (row['Avg_WFH_Score'], row['Donut_Gap']), 
+                    xytext=(8, 0), textcoords='offset points', fontsize=9)
+
+    # Labels and Aesthetics
+    plt.title('Correlation: WFH Intensity vs. The Donut Effect Gap', fontsize=14, pad=15)
+    plt.xlabel('Average WFH Intensity Score', fontsize=12)
+    plt.ylabel('Donut Gap (Suburban Growth - Urban Growth)', fontsize=12)
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('./outputs/visualizations/wfh_vs_donut_correlation.png')
+    plt.close()
+
+def visualization_urban_vs_suburban_home_value(df):
+    plt.figure(figsize=(12, 6)) 
+    df_growth = df.sort_values(by='Total_Suburban_Growth', ascending=False)
+    x = np.arange(len(df_growth['City']))
+    
+    plt.bar(x - 0.2, df_growth['Total_Suburban_Growth'], 0.4, label='Suburban', color='skyblue')
+    plt.bar(x + 0.2, df_growth['Total_Urban_Growth'], 0.4, label='Urban', color='navy')
+    
+    plt.xticks(x, df_growth['City'], rotation=45)
+    plt.ylabel('Growth Index (Base 100)')
+    plt.legend()
+    plt.title('Suburban vs Urban Growth Index Comparison')
+    
+    plt.tight_layout()
+    plt.savefig('./outputs/visualizations/growth_comparison.png')
+    plt.close()
+
+def donut_effect_by_city(df):
+    plt.figure(figsize=(10, 6))
+    df_sorted = df.sort_values(by='Donut_Gap', ascending=True)
+    
+    plt.barh(df_sorted['City'], df_sorted['Donut_Gap'], color='salmon')
+    plt.title('Ranking the "Donut Effect" Magnitude (Suburban Outperformance)')
+    plt.xlabel('Donut Gap (Percentage Points)')
+    
+    plt.tight_layout()
+    plt.savefig('./outputs/visualizations/donut_gap_ranking.png')
+    plt.close()
 
 def main():
     print("Starting analysis...")
@@ -195,11 +254,19 @@ def main():
     growth_index.to_csv('./outputs/city_growth_index.csv', index=False)
 
     # 5. Correlation results between WFH and housing.
-    impact_report = generate_wfh_impact_report(growth_index)
-    impact_report.to_csv('./outputs/FINAL_REPORT.csv', index=False)
-    print(impact_report)
+    impact_report_df = generate_wfh_impact_report(growth_index)
+    impact_report_df.to_csv('./outputs/FINAL_REPORT.csv', index=False)
 
-    print("Analysis Complete.")
+    # 6. Visualization: wfh vs. donut effect.
+    visualization_wfh_vs_donut(impact_report_df)
+
+    # 7. Visualization: Urban vs. Suburban Home Growth.
+    visualization_urban_vs_suburban_home_value(impact_report_df)
+
+    # 8. Visualization: Donut Effect by City.
+    donut_effect_by_city(impact_report_df)
+
+    print("Analysis Complete. See 'outputs' folder for data & visualizations :)")
 
 if __name__ == "__main__":
     main()
