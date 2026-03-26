@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import stats
 
 def wfh_by_city():
     excel_path = "./data/WFH_TimeSeries.xlsx"
@@ -234,6 +235,29 @@ def donut_effect_by_city(df):
     plt.savefig('./outputs/visualizations/donut_gap_ranking.png')
     plt.close()
 
+def regression(impact_report_df):
+    # Extract data points.
+    x = impact_report_df['Avg_WFH_Score']
+    y = impact_report_df['Donut_Gap']
+
+    # Run the regression: Ordinary Least Squares.
+    slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+
+    # Output results to txt file.
+    summary = (
+            f"Regression Results\n"
+            f"{'-' * 20}\n"
+            f"Beta (WFH Impact): {slope:.4f}\n"
+            f"R-squared:         {r_value**2:.4f}\n"
+            f"P-value:           {p_value:.4f}\n"
+        )    
+    with open("./outputs/regression.txt", "w") as f:
+        f.write(summary)
+    
+    print("Results saved to regression_summary.txt")
+    print(summary)
+        
+
 def main():
     print("Starting analysis...")
 
@@ -256,6 +280,7 @@ def main():
     # 5. Correlation results between WFH and housing.
     impact_report_df = generate_wfh_impact_report(growth_index)
     impact_report_df.to_csv('./outputs/FINAL_REPORT.csv', index=False)
+    impact_report_df.to_excel('./outputs/FINAL_REPORT.xlsx')
 
     # 6. Visualization: wfh vs. donut effect.
     visualization_wfh_vs_donut(impact_report_df)
@@ -265,6 +290,9 @@ def main():
 
     # 8. Visualization: Donut Effect by City.
     donut_effect_by_city(impact_report_df)
+
+    # 9. Regression
+    regression(impact_report_df)
 
     print("Analysis Complete. See 'outputs' folder for data & visualizations :)")
 
