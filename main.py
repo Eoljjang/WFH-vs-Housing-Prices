@@ -1,15 +1,16 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import stats
+import statsmodels.formula.api as smf
+import os
+
+# Ensure output directory exists
+os.makedirs('./outputs/visualizations', exist_ok=True)
 
 def wfh_by_city():
     excel_path = "./data/WFH_TimeSeries.xlsx"
-    sheet_name = "WFH by city"
-    
-    # Mapping to align WFH shorthand names with Zillow Metro names
     city_mapping = {
-        "Atlanta": "Atlanta-Sandy Springs-Alpharetta, GA", # modern zillow mapping uses "Alpharetta" instead of "Roswell".
+        "Atlanta": "Atlanta-Sandy Springs-Alpharetta, GA",
         "BayArea": "San Francisco-Oakland-Berkeley, CA",
         "Chicagoland": "Chicago-Naperville-Elgin, IL-IN-WI",
         "DC": "Washington-Arlington-Alexandria, DC-VA-MD-WV",
@@ -20,72 +21,30 @@ def wfh_by_city():
         "NewYork": "New York-Newark-Jersey City, NY-NJ-PA"
     }
 
-    df = pd.read_excel(excel_path, sheet_name=sheet_name, usecols="A, E:M")
-    
-    # Clean Date Column
-    date_col = df.columns[0]
-    df[date_col] = pd.to_datetime(df[date_col])
-    df = df[df[date_col].dt.year != 2020]
-    df.rename(columns={date_col: 'date'}, inplace=True)
+    df = pd.read_excel(excel_path, sheet_name="WFH by city", usecols="A, E:M")
+    df.rename(columns={df.columns[0]: 'date'}, inplace=True)
+    df['date'] = pd.to_datetime(df['date'])
+    df = df[df['date'].dt.year != 2020]
 
-    # Clean City Column Names
+    # Clean City Column Names & Melt
     df.columns = [col.split('_')[-1] if '_' in str(col) else col for col in df.columns]
-
-    # Melt to Long Format: [date, City_Shorthand, WFH_Score]
     df_long = df.melt(id_vars=['date'], var_name='City_Shorthand', value_name='WFH_Score')
     
-    # Map to Zillow Metro Names
     df_long['Metro'] = df_long['City_Shorthand'].map(city_mapping)
-    
-    # Drop cities not in our mapping.
-    df_long = df_long.dropna(subset=["Metro"])
-    return df_long
+    return df_long.dropna(subset=["Metro"])
 
 def home_value_index_by_zip():
-    csv_path = "./data/ZHVI_ZIP.csv"
-    df = pd.read_csv(csv_path)
-
+    df = pd.read_csv("./data/ZHVI_ZIP.csv")
     id_vars = ['RegionID', 'SizeRank', 'RegionName', 'RegionType', 'StateName', 
                'State', 'City', 'Metro', 'CountyName']
     
-    # Melt: Date columns to rows
     df_long = df.melt(id_vars=id_vars, var_name='date', value_name='ZHVI')
-    
     df_long['date'] = pd.to_datetime(df_long['date'])
-    df_long = df_long[df_long['date'].dt.year >= 2021]
-    return df_long
-
-def merge_and_analyze(wfh_df, zhvi_df):
-    # 2. Convert date strings to datetime objects
-    wfh_df['date'] = pd.to_datetime(wfh_df['date'])
-    zhvi_df['date'] = pd.to_datetime(zhvi_df['date'])
-
-    # 3. Create a temporary 'year_month' column to align the dates
-    # This ensures 2021-01-01 (WFH) matches 2021-01-31 (Zillow)
-    wfh_df['year_month'] = wfh_df['date'].dt.to_period('M')
-    zhvi_df['year_month'] = zhvi_df['date'].dt.to_period('M')
-
-    # 4. Merge the datasets
-    # We merge on 'year_month' and 'Metro' so each ZIP code gets 
-    # the WFH score for its specific Metro area in that month.
-    merged_df = pd.merge(
-        zhvi_df, 
-        wfh_df[['year_month', 'Metro', 'WFH_Score', 'City_Shorthand']], 
-        on=['year_month', 'Metro'], 
-    
-        how='inner'
-    )
-    merged_df = merged_df.dropna(subset=['WFH_Score']) # Drops rows where WFH_Score is missing.
-
-    # 5. Apply the Urban/Suburban Classification (as discussed)
-    merged_df = classify_urban_suburban(merged_df)
-    return merged_df
+    return df_long[df_long['date'].dt.year >= 2021]
 
 def classify_urban_suburban(df):
-    # Map the Metro name to a LIST of cities that count as 'Urban'. 
-    # Rationale: "Los Angelas" and "Long Beach" are both considered urban hubs of California. We can't just say "LA" is the only urban.
     core_cities_map = {
-        "Atlanta-Sandy Springs-Alpharetta, GA": ["Atlanta"], # modern zillow mapping uses "Alpharetta" instead of "Roswell".
+        "Atlanta-Sandy Springs-Alpharetta, GA": ["Atlanta"],
         "San Francisco-Oakland-Berkeley, CA": ["San Francisco", "Oakland", "Berkeley"],
         "Chicago-Naperville-Elgin, IL-IN-WI": ["Chicago"],
         "Washington-Arlington-Alexandria, DC-VA-MD-WV": ["Washington", "Alexandria", "Arlington"],
@@ -96,205 +55,143 @@ def classify_urban_suburban(df):
         "New York-Newark-Jersey City, NY-NJ-PA": ["New York", "Newark", "Jersey City"]
     }
 
-    # Default everything to Suburban
-    df['LocationType'] = 'Suburban'
-
-    # Logic: If the 'City' is in the list for that specific 'Metro', label as Urban
     def check_urban(row):
-        if pd.isna(row["City"]):
-            return 'Suburban'
-        
-        metro_name = row['Metro']
-        city_name = row['City']
-        
-        # Get the list of urban cities for this metro, default to empty list if not found
-        urban_list = core_cities_map.get(metro_name, [])
-
-        return "Urban" if city_name in urban_list else "Suburban"
+        urban_list = core_cities_map.get(row['Metro'], [])
+        return "Urban" if row['City'] in urban_list else "Suburban"
 
     df['LocationType'] = df.apply(check_urban, axis=1)
-    
     return df
 
-def calculate_price_growth_index(df):
-    """
-    Calculates the average Home Value (ZHVI) growth index for Urban vs Suburban areas
-    FOR EACH CITY, preserving the WFH_Score for analysis.
-    """
-    # 1. Get the WFH_Score for each city and month 
-    # (Since it's the same for all ZIPs in a city for a given month, mean() works)
-    wfh_scores = df.groupby(['City_Shorthand', 'date'])['WFH_Score'].mean().reset_index()
-    
-    # 2. Group by City, Date, AND LocationType to get the average ZHVI
-    avg_zhvi = df.groupby(['City_Shorthand', 'date', 'LocationType'])['ZHVI'].mean().reset_index()
-    
-    # 3. Pivot so Dates & Cities are the index, and 'Urban'/'Suburban' are columns
+def calculate_price_growth_index(merged_df):
+    # Aggregate to City/Date/Type level
+    wfh_scores = merged_df.groupby(['City_Shorthand', 'date'])['WFH_Score'].mean().reset_index()
+    avg_zhvi = merged_df.groupby(['City_Shorthand', 'date', 'LocationType'])['ZHVI'].mean().reset_index()
     pivot_df = avg_zhvi.pivot(index=['City_Shorthand', 'date'], columns='LocationType', values='ZHVI')
     
-    # 4. Calculate the Growth Index (Base Month = 100) PER CITY
-    # This sets the first month for EACH city as the baseline
+    # Growth Index (Base 100)
     growth_index = pivot_df.groupby(level='City_Shorthand').transform(lambda x: (x / x.iloc[0]) * 100)
     
-    # 5. Reset index and merge WFH scores back in
-    growth_index = growth_index.reset_index()
-    final_df = pd.merge(growth_index, wfh_scores, on=['City_Shorthand', 'date'], how='left')
+    # Log-Differences (Growth Rates)
+    log_diff = np.log(pivot_df).groupby(level='City_Shorthand').diff()
     
-    return final_df
+    final_df = growth_index.reset_index()
+    final_df['Suburban_Growth_Rate'] = log_diff['Suburban'].values
+    final_df['Urban_Growth_Rate'] = log_diff['Urban'].values
+    
+    return pd.merge(final_df, wfh_scores, on=['City_Shorthand', 'date'], how='left').dropna()
 
 def generate_wfh_impact_report(growth_df):
-    """
-    Takes the growth_index DataFrame and creates a cross-city 
-    comparison of WFH scores vs. Suburban Growth.
-    """
-    # 1. Calculate the overall average WFH score for each city
     wfh_stats = growth_df.groupby('City_Shorthand')['WFH_Score'].mean().reset_index()
-
-    # 2. Extract the "Final Snapshot" (The most recent data point for each city)
-    latest_date = growth_df['date'].max()
-    final_snapshot = growth_df[growth_df['date'] == latest_date].copy()
-
-    # 3. Merge latest indices with the average WFH stats
-    report = pd.merge(final_snapshot, wfh_stats, on='City_Shorthand', suffixes=('_monthly', '_avg'))
-
-    # 4. Calculate the "Donut Effect Gap" 
-    # (Suburban growth % minus Urban growth %)
-    report['Donut_Gap'] = report['Suburban'] - report['Urban']
-
-    # 5. Clean up and Rank
-    report = report[['City_Shorthand', 'WFH_Score_avg', 'Suburban', 'Urban', 'Donut_Gap']]
-    report = report.rename(columns={
-        'City_Shorthand': 'City',
-        'WFH_Score_avg': 'Avg_WFH_Score',
-        'Suburban': 'Total_Suburban_Growth',
-        'Urban': 'Total_Urban_Growth'
-    })
-
-    # 6. Round numeric columns to 2 decimal places.
-    numeric_cols = ['Avg_WFH_Score', 'Total_Suburban_Growth', 'Total_Urban_Growth', 'Donut_Gap']
-    report[numeric_cols] = report[numeric_cols].round(2)
-
+    final_indices = growth_df[growth_df['date'] == growth_df['date'].max()].copy()
+    
+    final_indices['Suburban_Pct'] = final_indices['Suburban'] - 100
+    final_indices['Urban_Pct'] = final_indices['Urban'] - 100
+    
+    report = pd.merge(final_indices, wfh_stats, on='City_Shorthand', suffixes=('', '_avg'))
+    report['Donut_Gap'] = report['Suburban_Pct'] - report['Urban_Pct']
     return report.sort_values(by='Donut_Gap', ascending=False)
 
 def visualization_wfh_vs_donut(df):
-    # Create a fresh figure
     plt.figure(figsize=(10, 6))
+    plt.scatter(df['WFH_Score'], df['Donut_Gap'], color='#2c3e50', s=100, zorder=3)
     
-    # Scatter points
-    plt.scatter(df['Avg_WFH_Score'], df['Donut_Gap'], color='#2c3e50', s=100, label='City Data Points', zorder=3)
+    m, b = np.polyfit(df['WFH_Score'], df['Donut_Gap'], 1)
+    plt.plot(df['WFH_Score'], m*df['WFH_Score'] + b, color='#e74c3c', linestyle='--')
 
-    # Calculate & plot trendline
-    x = df['Avg_WFH_Score'].values
-    y = df['Donut_Gap'].values
-    m, b = np.polyfit(x, y, 1)
-    
-    # Generate points for the trendline
-    plt.plot(x, m*x + b, color='#e74c3c', linestyle='--', linewidth=2, label=f'Trendline (y={m:.2f}x + {b:.2f})')
+    for _, row in df.iterrows():
+        plt.annotate(row['City_Shorthand'], (row['WFH_Score'], row['Donut_Gap']), xytext=(5, 5), textcoords='offset points')
 
-    # Annotate each city
-    for i, row in df.iterrows():
-        plt.annotate(row['City'], (row['Avg_WFH_Score'], row['Donut_Gap']), 
-                    xytext=(8, 0), textcoords='offset points', fontsize=9)
-
-    # Labels and Aesthetics
-    plt.title('Correlation: WFH Intensity vs. The Donut Effect Gap', fontsize=14, pad=15)
-    plt.xlabel('Average WFH Intensity Score', fontsize=12)
-    plt.ylabel('Donut Gap (Suburban Growth - Urban Growth)', fontsize=12)
+    plt.title('WFH Intensity vs. The Donut Effect Gap')
+    plt.xlabel('Average WFH Intensity')
+    plt.ylabel('Donut Gap (Suburban - Urban Growth %)')
     plt.grid(True, linestyle=':', alpha=0.6)
-    plt.legend()
-
     plt.tight_layout()
     plt.savefig('./outputs/visualizations/wfh_vs_donut_correlation.png')
     plt.close()
 
-def visualization_urban_vs_suburban_home_value(df):
-    plt.figure(figsize=(12, 6)) 
-    df_growth = df.sort_values(by='Total_Suburban_Growth', ascending=False)
-    x = np.arange(len(df_growth['City']))
-    
-    plt.bar(x - 0.2, df_growth['Total_Suburban_Growth'], 0.4, label='Suburban', color='skyblue')
-    plt.bar(x + 0.2, df_growth['Total_Urban_Growth'], 0.4, label='Urban', color='navy')
-    
-    plt.xticks(x, df_growth['City'], rotation=45)
-    plt.ylabel('Growth Index (Base 100)')
+def plot_price_trends_by_year(df):
+    plt.figure(figsize=(12, 6))
+    timeline = df.groupby('date')[['Suburban', 'Urban']].mean()
+    plt.plot(timeline.index, timeline['Suburban'], label='Suburban Index', color='skyblue', linewidth=3)
+    plt.plot(timeline.index, timeline['Urban'], label='Urban Index', color='navy', linewidth=3)
+    plt.title('Home Price Index (Base 100) 2021-2025')
+    plt.ylabel('Growth Index')
     plt.legend()
-    plt.title('Suburban vs Urban Growth Index Comparison')
-    
-    plt.tight_layout()
-    plt.savefig('./outputs/visualizations/growth_comparison.png')
+    plt.grid(True, alpha=0.3)
+    plt.savefig('./outputs/visualizations/price_trends_raw.png')
     plt.close()
 
-def donut_effect_by_city(df):
-    plt.figure(figsize=(10, 6))
-    df_sorted = df.sort_values(by='Donut_Gap', ascending=True)
-    
-    plt.barh(df_sorted['City'], df_sorted['Donut_Gap'], color='salmon')
-    plt.title('Ranking the "Donut Effect" Magnitude (Suburban Outperformance)')
-    plt.xlabel('Donut Gap (Percentage Points)')
-    
-    plt.tight_layout()
-    plt.savefig('./outputs/visualizations/donut_gap_ranking.png')
-    plt.close()
+def regression_analysis(df):
+    df_melted = df.melt(
+        id_vars=['City_Shorthand', 'date', 'WFH_Score'],
+        value_vars=['Urban_Growth_Rate', 'Suburban_Growth_Rate'],
+        var_name='LocationType', value_name='Growth_Rate'
+    )
+    model = smf.ols(formula="Growth_Rate ~ WFH_Score * LocationType", data=df_melted).fit()
+    print(model.summary())
+    with open("./outputs/regression_results.txt", "w") as f:
+        f.write(model.summary().as_text())
 
-def regression(impact_report_df):
-    # Extract data points.
-    x = impact_report_df['Avg_WFH_Score']
-    y = impact_report_df['Donut_Gap']
-
-    # Run the regression: Ordinary Least Squares.
-    slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
-
-    # Output results to txt file.
-    summary = (
-            f"Regression Results\n"
-            f"{'-' * 20}\n"
-            f"Beta (WFH Impact): {slope:.4f}\n"
-            f"R-squared:         {r_value**2:.4f}\n"
-            f"P-value:           {p_value:.4f}\n"
-        )    
-    with open("./outputs/regression.txt", "w") as f:
-        f.write(summary)
+def regression_robustness_check(df):
+    """
+    Robustness check using Time Fixed Effects and Log-Growth.
+    Formula: Growth_Rate ~ WFH_Score * LocationType + C(date)
+    """
+    # 1. Prepare data (ensure LocationType is categorical)
+    df_melted = df.melt(
+        id_vars=['City_Shorthand', 'date', 'WFH_Score'],
+        value_vars=['Urban_Growth_Rate', 'Suburban_Growth_Rate'],
+        var_name='LocationType', 
+        value_name='Growth_Rate'
+    )
     
-    print("Results saved to regression_summary.txt")
-    print(summary)
-        
+    # 2. Run the model with Time Fixed Effects [C(date)]
+    # This 'soaks up' the variation caused by specific months/years
+    formula = "Growth_Rate ~ WFH_Score * LocationType + C(date)"
+    model = smf.ols(formula=formula, data=df_melted).fit()
+    
+    print("--- ROBUSTNESS CHECK RESULTS ---")
+    # We only print the main variables of interest, skipping the 50+ date dummies
+    interest_vars = ['Intercept', 'WFH_Score', 'LocationType[T.Suburban_Growth_Rate]', 
+                     'WFH_Score:LocationType[T.Suburban_Growth_Rate]']
+    
+    print(model.summary().tables[1]) 
+    
+    with open("./outputs/robustness_check.txt", "w") as f:
+        f.write(model.summary().as_text())
 
 def main():
     print("Starting analysis...")
+    wfh_df = wfh_by_city()
+    zhvi_df = home_value_index_by_zip()
 
-    # 1. Load and format the WFH scores
-    wfh_data_df_long = wfh_by_city()
-    wfh_data_df_long.to_csv("./outputs/wfh_data.csv", index=False)
-    
-    # 2. Load and melt the Zillow housing data
-    zhvi_data_df_long = home_value_index_by_zip()
-    zhvi_data_df_long.to_csv("./outputs/zhvi_data.csv", index=False)
+    # Create merge key
+    wfh_df['year_month'] = wfh_df['date'].dt.to_period('M')
+    zhvi_df['year_month'] = zhvi_df['date'].dt.to_period('M')
 
-    # 3. Merge Databases
-    merged_df = merge_and_analyze(wfh_data_df_long, zhvi_data_df_long)
-    merged_df.to_csv("./outputs/merged_df.csv", index=False)
+    # Merge datasets
+    merged_df = pd.merge(zhvi_df, wfh_df[['year_month', 'Metro', 'WFH_Score', 'City_Shorthand']], 
+                         on=['year_month', 'Metro'], how='inner').dropna(subset=['WFH_Score'])
     
-    # 4. Calcualte the price growth index
+    # Process data
+    merged_df = classify_urban_suburban(merged_df)
     growth_index = calculate_price_growth_index(merged_df)
-    growth_index.to_csv('./outputs/city_growth_index.csv', index=False)
+    impact_report = generate_wfh_impact_report(growth_index)
 
-    # 5. Correlation results between WFH and housing.
-    impact_report_df = generate_wfh_impact_report(growth_index)
-    impact_report_df.to_csv('./outputs/FINAL_REPORT.csv', index=False)
-    impact_report_df.to_excel('./outputs/FINAL_REPORT.xlsx')
+    # 1. Generate Visualizations
+    visualization_wfh_vs_donut(impact_report)
+    plot_price_trends_by_year(growth_index)
 
-    # 6. Visualization: wfh vs. donut effect.
-    visualization_wfh_vs_donut(impact_report_df)
+    # 2. Primary Regression Analysis
+    print("\n--- Running Primary OLS Regression ---")
+    regression_analysis(growth_index)
 
-    # 7. Visualization: Urban vs. Suburban Home Growth.
-    visualization_urban_vs_suburban_home_value(impact_report_df)
+    # 3. Robustness Check (Time Fixed Effects)
+    print("\n--- Running Robustness Check ---")
+    regression_robustness_check(growth_index)
 
-    # 8. Visualization: Donut Effect by City.
-    donut_effect_by_city(impact_report_df)
-
-    # 9. Regression
-    regression(impact_report_df)
-
-    print("Analysis Complete. See 'outputs' folder for data & visualizations :)")
-
+    # Export Final Report
+    impact_report.to_csv('./outputs/FINAL_REPORT.csv', index=False)
+    print("\nAnalysis Complete. Check the 'outputs' folder for 'regression_results.txt' and 'robustness_check.txt'.")
 if __name__ == "__main__":
     main()

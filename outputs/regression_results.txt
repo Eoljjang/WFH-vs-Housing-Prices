@@ -1,0 +1,27 @@
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:            Growth_Rate   R-squared:                       0.179
+Model:                            OLS   Adj. R-squared:                  0.176
+Method:                 Least Squares   F-statistic:                     78.02
+Date:                Sat, 11 Apr 2026   Prob (F-statistic):           1.14e-45
+Time:                        13:03:53   Log-Likelihood:                 3815.4
+No. Observations:                1080   AIC:                            -7623.
+Df Residuals:                    1076   BIC:                            -7603.
+Df Model:                           3                                         
+Covariance Type:            nonrobust                                         
+===============================================================================================================
+                                                  coef    std err          t      P>|t|      [0.025      0.975]
+---------------------------------------------------------------------------------------------------------------
+Intercept                                      -0.0257      0.003    -10.134      0.000      -0.031      -0.021
+LocationType[T.Urban_Growth_Rate]               0.0096      0.004      2.665      0.008       0.003       0.017
+WFH_Score                                       0.0009   7.43e-05     12.159      0.000       0.001       0.001
+WFH_Score:LocationType[T.Urban_Growth_Rate]    -0.0004      0.000     -3.363      0.001      -0.001      -0.000
+==============================================================================
+Omnibus:                       44.775   Durbin-Watson:                   0.192
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):              125.367
+Skew:                           0.097   Prob(JB):                     5.98e-28
+Kurtosis:                       4.658   Cond. No.                         745.
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
