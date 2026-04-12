@@ -128,8 +128,7 @@ def regression_analysis(df):
         var_name='LocationType', value_name='Growth_Rate'
     )
     model = smf.ols(formula="Growth_Rate ~ WFH_Score * LocationType", data=df_melted).fit()
-    print(model.summary())
-    with open("./outputs/regression_results.txt", "w") as f:
+    with open("./outputs/regressions/regression_results.txt", "w") as f:
         f.write(model.summary().as_text())
 
 def regression_robustness_check(df):
@@ -150,48 +149,119 @@ def regression_robustness_check(df):
     formula = "Growth_Rate ~ WFH_Score * LocationType + C(date)"
     model = smf.ols(formula=formula, data=df_melted).fit()
     
-    print("--- ROBUSTNESS CHECK RESULTS ---")
-    # We only print the main variables of interest, skipping the 50+ date dummies
-    interest_vars = ['Intercept', 'WFH_Score', 'LocationType[T.Suburban_Growth_Rate]', 
-                     'WFH_Score:LocationType[T.Suburban_Growth_Rate]']
-    
-    print(model.summary().tables[1]) 
-    
-    with open("./outputs/robustness_check.txt", "w") as f:
+    with open("./outputs/regressions/robustness_check.txt", "w") as f:
         f.write(model.summary().as_text())
+
+def run_heterogeneity_analysis(df):
+    """
+    Splits the sample into 'Mega Cities' (Top 3) vs others
+    to see if the Donut Effect is stronger in larger metros.
+    """
+    # 1. Define your tiers based on population/size
+    mega_cities = ['NewYork', 'LosAngeles', 'Chicagoland']
+    
+    # 2. Prepare the long-form data
+    df_melted = df.melt(
+        id_vars=['City_Shorthand', 'date', 'WFH_Score'],
+        value_vars=['Urban_Growth_Rate', 'Suburban_Growth_Rate'],
+        var_name='LocationType', 
+        value_name='Growth_Rate'
+    )
+    
+    # 3. Create the group flag
+    df_melted['Is_Mega'] = df_melted['City_Shorthand'].isin(mega_cities)
+    
+    # 4. Run regressions for each group
+    formula = "Growth_Rate ~ WFH_Score * LocationType + C(date)"
+    
+    model_mega = smf.ols(formula=formula, data=df_melted[df_melted['Is_Mega'] == True]).fit()
+    model_others = smf.ols(formula=formula, data=df_melted[df_melted['Is_Mega'] == False]).fit()
+
+    # Save results
+    with open("./outputs/heterogeneity/city_size.txt", "w") as f:
+        f.write("MEGA CITIES RESULTS\n" + model_mega.summary().as_text() + 
+                "\n\nOTHER CITIES RESULTS\n" + model_others.summary().as_text())
+
+def run_walkability_heterogeneity(df):
+    """
+    Analyzes how the Donut Effect varies between walkable/transit-heavy 
+    cities and car-dependent ones. SOURCE: https://www.walkscore.com/cities-and-neighborhoods/
+    """
+    # 1. Prepare the long-form (melted) data
+    df_melted = df.melt(
+        id_vars=['City_Shorthand', 'date', 'WFH_Score'],
+        value_vars=['Urban_Growth_Rate', 'Suburban_Growth_Rate'],
+        var_name='LocationType', 
+        value_name='Growth_Rate'
+    )
+
+    # 2. Define the split
+    walkable_group = ['NewYork', 'Chicagoland', 'BayArea', 'DC', 'Miami']
+    df_melted['Is_Walkable'] = df_melted['City_Shorthand'].isin(walkable_group)
+
+    # 3. Model for the Walkable/Transit Cities
+    # Use C(date) for Time Fixed Effects
+    model_walkable = smf.ols(
+        formula="Growth_Rate ~ WFH_Score * LocationType + C(date)", 
+        data=df_melted[df_melted['Is_Walkable'] == True]
+    ).fit()
+
+    # 4. Model for the Car-Dependent Cities
+    model_car_centric = smf.ols(
+        formula="Growth_Rate ~ WFH_Score * LocationType + C(date)", 
+        data=df_melted[df_melted['Is_Walkable'] == False]
+    ).fit()
+
+    # 5. Output the results for comparison
+    with open("./outputs/heterogeneity/walkable.txt", "w") as f:
+        f.write("MEGA CITIES RESULTS\n" + model_walkable.summary().as_text() + 
+                "\n\nOTHER CITIES RESULTS\n" + model_walkable.summary().as_text())
+    
+    return model_walkable, model_car_centric
 
 def main():
     print("Starting analysis...")
     wfh_df = wfh_by_city()
     zhvi_df = home_value_index_by_zip()
 
-    # Create merge key
+    # 1. Create merge key
     wfh_df['year_month'] = wfh_df['date'].dt.to_period('M')
     zhvi_df['year_month'] = zhvi_df['date'].dt.to_period('M')
 
-    # Merge datasets
+    # 2. Merge datasets
     merged_df = pd.merge(zhvi_df, wfh_df[['year_month', 'Metro', 'WFH_Score', 'City_Shorthand']], 
                          on=['year_month', 'Metro'], how='inner').dropna(subset=['WFH_Score'])
     
-    # Process data
+    # 3. Process data
     merged_df = classify_urban_suburban(merged_df)
     growth_index = calculate_price_growth_index(merged_df)
     impact_report = generate_wfh_impact_report(growth_index)
 
-    # 1. Generate Visualizations
+    # 4. Generate Visualizations
     visualization_wfh_vs_donut(impact_report)
     plot_price_trends_by_year(growth_index)
 
-    # 2. Primary Regression Analysis
+    # 5. Primary Regression Analysis
     print("\n--- Running Primary OLS Regression ---")
     regression_analysis(growth_index)
 
-    # 3. Robustness Check (Time Fixed Effects)
+    # 6. Robustness Check (Time Fixed Effects)
     print("\n--- Running Robustness Check ---")
     regression_robustness_check(growth_index)
 
-    # Export Final Report
-    impact_report.to_csv('./outputs/FINAL_REPORT.csv', index=False)
-    print("\nAnalysis Complete. Check the 'outputs' folder for 'regression_results.txt' and 'robustness_check.txt'.")
+    # 7. Heterogeneity - By City Size.
+    run_heterogeneity_analysis(growth_index)
+
+    # 8. Heterogeneity - By transit score
+    run_walkability_heterogeneity(growth_index)
+
+    # 9. Write data to output folder.
+    impact_report.to_csv('./outputs/FINAL_OUTPUTS.csv', index=False)
+    merged_df.to_csv("./outputs/dfs/merged_df.csv", index=False)
+    growth_index.to_csv("./outputs/dfs/city_growth_index_df.csv", index=False)
+    wfh_df.to_csv("./outputs/dfs/wfh_data.csv", index=False)
+    zhvi_df.to_csv("./outputs/dfs/zhvi_data.csv", index=False)
+    
+    print("\nAnalysis Complete. Check the 'outputs' folder.")
 if __name__ == "__main__":
     main()

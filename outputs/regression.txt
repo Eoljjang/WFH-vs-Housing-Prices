@@ -1,5 +1,0 @@
-Regression Results
---------------------
-Beta (WFH Impact): 1.9542
-R-squared:         0.0810
-P-value:           0.4580
