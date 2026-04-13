@@ -214,8 +214,8 @@ def run_walkability_heterogeneity(df):
 
     # 5. Output the results for comparison
     with open("./outputs/heterogeneity/walkable.txt", "w") as f:
-        f.write("MEGA CITIES RESULTS\n" + model_walkable.summary().as_text() + 
-                "\n\nOTHER CITIES RESULTS\n" + model_walkable.summary().as_text())
+        f.write("Walkable Cities Results:\n" + model_walkable.summary().as_text() + 
+                "\n\nOTHER CITIES RESULTS\n" + model_car_centric.summary().as_text())
     
     return model_walkable, model_car_centric
 

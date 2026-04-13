@@ -4,8 +4,8 @@ MEGA CITIES RESULTS
 Dep. Variable:            Growth_Rate   R-squared:                       0.673
 Model:                            OLS   Adj. R-squared:                  0.605
 Method:                 Least Squares   F-statistic:                     9.864
-Date:                Sat, 11 Apr 2026   Prob (F-statistic):           5.99e-44
-Time:                        23:50:10   Log-Likelihood:                 1502.7
+Date:                Mon, 13 Apr 2026   Prob (F-statistic):           5.99e-44
+Time:                        12:39:21   Log-Likelihood:                 1502.7
 No. Observations:                 360   AIC:                            -2879.
 Df Residuals:                     297   BIC:                            -2635.
 Df Model:                          62                                         
@@ -94,8 +94,8 @@ OTHER CITIES RESULTS
 Dep. Variable:            Growth_Rate   R-squared:                       0.774
 Model:                            OLS   Adj. R-squared:                  0.753
 Method:                 Least Squares   F-statistic:                     36.36
-Date:                Sat, 11 Apr 2026   Prob (F-statistic):          9.25e-173
-Time:                        23:50:10   Log-Likelihood:                 2957.9
+Date:                Mon, 13 Apr 2026   Prob (F-statistic):          9.25e-173
+Time:                        12:39:21   Log-Likelihood:                 2957.9
 No. Observations:                 720   AIC:                            -5790.
 Df Residuals:                     657   BIC:                            -5501.
 Df Model:                          62                                         

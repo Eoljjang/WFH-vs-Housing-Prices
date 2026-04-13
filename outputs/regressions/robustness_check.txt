@@ -3,8 +3,8 @@
 Dep. Variable:            Growth_Rate   R-squared:                       0.694
 Model:                            OLS   Adj. R-squared:                  0.676
 Method:                 Least Squares   F-statistic:                     37.24
-Date:                Sat, 11 Apr 2026   Prob (F-statistic):          5.53e-218
-Time:                        23:50:10   Log-Likelihood:                 4349.0
+Date:                Mon, 13 Apr 2026   Prob (F-statistic):          5.53e-218
+Time:                        12:39:21   Log-Likelihood:                 4349.0
 No. Observations:                1080   AIC:                            -8572.
 Df Residuals:                    1017   BIC:                            -8258.
 Df Model:                          62                                         
