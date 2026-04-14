@@ -1,0 +1,8 @@
+                       Walkable Cities         Other Cities
+WFH_Score            -0.0002* (0.0001)    0.0001** (0.0001)
+WFH_Score (Urban)  -0.0004*** (0.0001)  -0.0003*** (0.0001)
+Urban               0.0118*** (0.0034)   0.0075*** (0.0025)
+Observations                       600                  480
+R^2                               0.658                0.822
+
+
